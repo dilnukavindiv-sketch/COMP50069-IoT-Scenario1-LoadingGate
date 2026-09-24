@@ -8,8 +8,9 @@
  *  @brief    IoT-based embedded system for automated industrial
  *            loading gate with autonomous, manual, and safety modes.
  *            Implements Option D Hybrid Recovery routine.
- *  @author   [Your Name]
- *  @date     [Date]
+ *  @author   Dilnuka Vindi
+ *  @date     24 September 2026
+ *  @version  1.0
  * ============================================================
  */
 
@@ -55,12 +56,15 @@
 #define SERVO_OPEN_ANGLE          90
 
 // ---------------- STATE MACHINE ----------------
+/**
+ * @brief Enumeration of all operational states in the system FSM.
+ */
 enum SystemState {
-  STATE_AUTONOMOUS,
-  STATE_MANUAL,
-  STATE_SAFETY_HALT,
-  STATE_TIMED_IDLE,
-  STATE_PERMANENT_FREEZE
+  STATE_AUTONOMOUS,       /**< Normal autonomous operation */
+  STATE_MANUAL,           /**< Manual override – gate locked open */
+  STATE_SAFETY_HALT,      /**< Safety halt – obstruction detected */
+  STATE_TIMED_IDLE,       /**< Waiting period after obstruction clears */
+  STATE_PERMANENT_FREEZE  /**< System locked – requires reset */
 };
 
 SystemState currentState = STATE_AUTONOMOUS;
@@ -111,6 +115,10 @@ void printHelp();
 void printStatus();
 
 // ---------------- SETUP ----------------
+/**
+ * @brief  Initialises the ESP32 system, peripherals, and enters
+ *         the default AUTONOMOUS state.
+ */
 void setup() {
   Serial.begin(115200);
   delay(500);
@@ -162,6 +170,11 @@ void setup() {
 }
 
 // ---------------- MAIN LOOP ----------------
+/**
+ * @brief  Main execution loop – non-blocking scheduler.
+ *         Handles serial input, sensor reads, state dispatch,
+ *         LED/buzzer patterns, and periodic outputs.
+ */
 void loop() {
   unsigned long now = millis();
 
@@ -175,7 +188,7 @@ void loop() {
       }
     } else {
       serialBuffer += c;
-      if (serialBuffer.length() > 64) serialBuffer = ""; // overflow guard
+      if (serialBuffer.length() > 64) serialBuffer = "";
     }
   }
 
@@ -211,9 +224,9 @@ void loop() {
   }
 
   switch (currentState) {
-    case STATE_AUTONOMOUS:      handleAutonomousMode(now); break;
-    case STATE_SAFETY_HALT:     handleSafetyHalt(now);     break;
-    case STATE_TIMED_IDLE:      handleTimedIdle(now);      break;
+    case STATE_AUTONOMOUS:       handleAutonomousMode(now); break;
+    case STATE_SAFETY_HALT:      handleSafetyHalt(now);     break;
+    case STATE_TIMED_IDLE:       handleTimedIdle(now);      break;
     case STATE_PERMANENT_FREEZE: handlePermanentFreeze(now); break;
     case STATE_MANUAL: break;
   }
@@ -277,7 +290,7 @@ void loop() {
 
 /**
  * @brief  Process a serial command string.
- * @param  cmd The full command string.
+ * @param  cmd The full command string entered by the user.
  */
 void processSerialCommand(String cmd) {
   cmd.trim();
@@ -313,6 +326,9 @@ void processSerialCommand(String cmd) {
   }
 }
 
+/**
+ * @brief  Prints the list of available serial commands.
+ */
 void printHelp() {
   Serial.println("========================================");
   Serial.println(" Available Commands:");
@@ -325,6 +341,9 @@ void printHelp() {
   Serial.println("========================================");
 }
 
+/**
+ * @brief  Prints a full snapshot of system status.
+ */
 void printStatus() {
   Serial.println("========================================");
   Serial.print(" State:     "); Serial.println(stateName(currentState));
@@ -340,6 +359,10 @@ void printStatus() {
 
 // ---------------- HELPER FUNCTIONS ----------------
 
+/**
+ * @brief  Change the system state and log the transition.
+ * @param  newState The new state to enter.
+ */
 void changeState(SystemState newState) {
   currentState = newState;
   lastStateChange = millis();
@@ -347,6 +370,11 @@ void changeState(SystemState newState) {
   Serial.println(stateName(newState));
 }
 
+/**
+ * @brief  Convert a state enum value to a human-readable string.
+ * @param  s The state to convert.
+ * @return Pointer to a constant string representing the state name.
+ */
 const char* stateName(SystemState s) {
   switch (s) {
     case STATE_AUTONOMOUS:       return "AUTONOMOUS";
@@ -358,6 +386,10 @@ const char* stateName(SystemState s) {
   }
 }
 
+/**
+ * @brief  Read the potentiometer with 10-sample averaging.
+ * @return Smoothed ADC value in the range 0–4095.
+ */
 int readPotentiometer() {
   long sum = 0;
   for (int i = 0; i < ADC_SAMPLES; i++) {
@@ -367,12 +399,24 @@ int readPotentiometer() {
   return (int)(sum / ADC_SAMPLES);
 }
 
+/**
+ * @brief  Map smoothed ADC value to hold delay in milliseconds.
+ * @param  smoothedValue Averaged ADC value (0–4095).
+ */
 void updateHoldDelay(int smoothedValue) {
   holdDelayMs = map(smoothedValue, 0, 4095, HOLD_DELAY_MIN_MS, HOLD_DELAY_MAX_MS);
 }
 
+/**
+ * @brief  Read PIR sensor digital state.
+ * @return true if motion detected, false otherwise.
+ */
 bool readPIR() { return digitalRead(PIN_PIR) == HIGH; }
 
+/**
+ * @brief  Read ultrasonic distance with validation.
+ * @return Distance in cm (2–400), or 999.0 if invalid/timeout.
+ */
 float readUltrasonic() {
   digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
   delayMicroseconds(2);
@@ -388,6 +432,10 @@ float readUltrasonic() {
   return cm;
 }
 
+/**
+ * @brief  Check for obstructions and trigger safety halt if needed.
+ * @param  now Current millis() timestamp.
+ */
 void checkSafety(unsigned long now) {
   bool obstruction = (distanceCm < obstructionThresholdCm);
   obstructionActive = obstruction;
@@ -405,14 +453,37 @@ void checkSafety(unsigned long now) {
   }
 }
 
-void openGate()  { gateServo.write(SERVO_OPEN_ANGLE);  gateOpen = true;  Serial.println("[GATE] Opening..."); }
-void closeGate() { gateServo.write(SERVO_CLOSED_ANGLE); gateOpen = false; Serial.println("[GATE] Closing..."); }
+/**
+ * @brief  Command the servo to the open position.
+ */
+void openGate() {
+  gateServo.write(SERVO_OPEN_ANGLE);
+  gateOpen = true;
+  Serial.println("[GATE] Opening...");
+}
 
+/**
+ * @brief  Command the servo to the closed position.
+ */
+void closeGate() {
+  gateServo.write(SERVO_CLOSED_ANGLE);
+  gateOpen = false;
+  Serial.println("[GATE] Closing...");
+}
+
+/**
+ * @brief  Autonomous mode handler – PIR-driven open, timed close.
+ * @param  now Current millis() timestamp.
+ */
 void handleAutonomousMode(unsigned long now) {
   if (motionDetected && !gateOpen) { openGate(); lastMotionTime = now; }
   if (gateOpen && !motionDetected && (now - lastMotionTime > holdDelayMs)) closeGate();
 }
 
+/**
+ * @brief  Safety halt handler – waits for obstruction to clear.
+ * @param  now Current millis() timestamp.
+ */
 void handleSafetyHalt(unsigned long now) {
   if (!obstructionActive) {
     safetyClearTime = now;
@@ -421,6 +492,10 @@ void handleSafetyHalt(unsigned long now) {
   }
 }
 
+/**
+ * @brief  Timed idle handler – auto-retreat after 3-second window.
+ * @param  now Current millis() timestamp.
+ */
 void handleTimedIdle(unsigned long now) {
   if (now - safetyClearTime >= TIMED_IDLE_MS) {
     if (!obstructionActive) {
@@ -434,6 +509,10 @@ void handleTimedIdle(unsigned long now) {
   }
 }
 
+/**
+ * @brief  Permanent freeze handler – only Error Reset can recover.
+ * @param  now Current millis() timestamp.
+ */
 void handlePermanentFreeze(unsigned long now) {
   if (readButton(PIN_BTN_RESET)) {
     Serial.println("[RESET] Error Reset pressed. System recovering...");
@@ -444,6 +523,11 @@ void handlePermanentFreeze(unsigned long now) {
   }
 }
 
+/**
+ * @brief  Read a push button with 300 ms software debouncing.
+ * @param  pin GPIO pin number of the button.
+ * @return true if a valid new press is detected, false otherwise.
+ */
 bool readButton(int pin) {
   static unsigned long lastPressReset  = 0;
   static unsigned long lastPressManual = 0;
@@ -467,6 +551,9 @@ bool readButton(int pin) {
   return false;
 }
 
+/**
+ * @brief  Update the OLED display with context-sensitive content.
+ */
 void updateOLED() {
   display.clearDisplay();
   display.setTextSize(1);
